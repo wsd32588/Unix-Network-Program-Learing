@@ -1,43 +1,30 @@
 # 项目记忆
 
-最后更新：2026-09-13（Asia/Hong_Kong）
+最后更新：2026-09-15（Asia/Hong_Kong）
 
 ## 协作约定
 
-- 用户要求：在本文件夹维护记忆文件，每次更改代码前简要阅读，保持不同对话之间的上下文连贯。
-- 阅读和更新流程见根目录 `AGENTS.md`。本文件只保存项目交接信息，实际状态需结合代码和 Git 检查。
-- 用户偏好中文交流；代码优先可读、可维护、正确，避免不必要的抽象，控制语句使用花括号。
+- 开始任务和修改代码前阅读本文件；完成一组代码修改后更新。若记忆与代码、Git 状态或最新要求冲突，以后三者为准。
+- 用户偏好中文；`include/unp/` 是项目重点，`src/main.cpp` 主要用于练习和验证。代码优先保证可读、明确、正确和跨平台。
 
-## 当前项目
+## 当前结构
 
-- 路径：`D:\PROJECTS\CPP\Native`。
-- 项目名及练习可执行目标：`Native`；CMake 最低版本声明为 4.2，C++ 标准设置为 23。
-- `include/unp.h` 是项目重点：`unp` 命名空间下的 Windows/POSIX Socket 封装，包含可移动、不可拷贝的 RAII `sockfd`、Windows 网络环境初始化 `socket_env`、地址转换、bind/accept/send/recv 及完整发送等辅助函数。
-- `src/main.cpp`：TCP 时间服务示例，默认端口 `8080`，支持一个服务名或端口参数；通过 `getaddrinfo` 遍历候选地址并绑定、监听，接受连接后发送当前时间。IPv6 候选会尝试开启双栈。
-- CMake 将 `unp` 建模为 INTERFACE 库，Windows 下显式传递 `ws2_32` 链接依赖，并为 MSVC/GNU 类编译器开启较严格警告。vcpkg 清单当前没有第三方依赖。
-- 存在 `cmake-build-debug/`、`cmake-build-debug-visual-studio/`、`out/` 等本地构建目录；目录存在不代表当前源码构建通过。
-- `tests/test_unp.cpp` 通过 CTest 验证地址转换、借用地址 view、RAII 移动所有权和本地回环 Socket I/O。
+- 项目是 C++23 的 header-only `unp` INTERFACE 库；Windows 链接 `ws2_32`，当前无第三方依赖。
+- `include/unp.h` 是兼容入口，`include/unp/unp.h` 是新总入口。
+- `unp::net`：`socket.h`（`sockfd`、`socket_env`、平台类型/错误）、`address.h`、`operations.h`。
+- `unp::net::io`：`io.h`（`send_all`、`readn`、`buffered_reader`、`readline`）；`unp::fs`：`file.h`（`open_file`）；`unp::net::detail`：内部错误处理。
+- `src/main.cpp` 是 IPv4 TCP Daytime 客户端：接收一个 IP 参数，连接端口 `13` 并用 `buffered_reader`/`readline` 读取时间；目标地址必须实际运行 Daytime 服务。`tests/test_unp.cpp` 直接包含窄头文件测试各模块。
 
-## Git 状态快照
+## 关键决定
 
-以下是建立记忆时的快照，后续操作前应重新检查：
+- `sockfd` 只负责句柄所有权和创建，原始网络操作保持自由函数；`create` 失败返回无效对象，`release()` 为 `[[nodiscard]]`，`reset(get())` 安全。
+- `send_socket` 表示一次系统调用，`send_all` 负责完整发送。`readn` 尽量读取指定长度，EOF 时允许短返回，并处理调用中断、空指针和长度溢出。
+- `buffered_reader` 借用一个 Socket 且不负责关闭；`reset(socket)` 可安全换绑并清空缓存。移动操作会转移 Socket 绑定和未读缓存，并将源对象置为未绑定。两个 `readline` 达到长度上限时返回本次读取长度，剩余数据留给下次调用。
+- `auto_sockaddr` 只接受左值，避免悬空 view。`open_file` 返回由调用者用 `std::fclose` 关闭的 `FILE*`。
+- 接口已按模块和命名空间拆分；旧的 `include/unp.h` 继续兼容现有包含路径。
 
-- 分支：`main`；HEAD：`eaa857c`（`Add Windows-compatible UNP header`）；前一提交：`78810c7`（`Initial commit`）。
-- 已有未提交修改：`include/unp.h`。
-- 已有未跟踪内容：`AGENTS.md`、`MEMORY.md`、`CMakeLists.txt`、`src/`、`tests/`、`vcpkg-configuration.json`、`vcpkg.json`。
-- 头文件中的进行中改动包括：地址类型 concept 和辅助函数、字节序常量、将 Socket 创建接口改为静态工厂 `sockfd::create`。
-- 本次新增 `AGENTS.md` 和 `MEMORY.md`，未执行 Git 提交。
+## 验证与待办
 
-## 设计决定与待核验事项
-
-- `sockfd::create` 与其余系统调用包装保持一致：不抛异常，失败时返回无效 RAII 对象，由调用者通过 `valid()`/布尔转换和 `last_socket_error()` 处理。这允许地址候选循环继续回退。
-- `send_socket` 保留“一次系统调用”的语义；需要完整发送时使用 `send_all_socket`，它处理部分发送和中断重试。
-- `auto_sockaddr` 只接受左值，避免从临时地址对象返回立即悬空的非拥有 view。
-- Windows 已使用 MSVC 19.51 和 MinGW GCC 16.2 实际编译、链接并运行测试；Linux/macOS POSIX 分支尚未实际编译。尝试枚举 WSL 时环境返回 `E_ACCESSDENIED`。
-- 旧的 CLion/vcpkg 构建目录在当前沙箱中重新配置时，vcpkg 无权清理 `C:\tool-chains\vcpkg` 下的旧包；不使用 vcpkg 的全新构建已验证成功。
-
-## 最近工作
-
-- 2026-09-13：重点修整 `unp.h`：统一 `sockfd::create` 错误语义，防止临时地址 view，校验空缓冲区/空地址字符串，让 `pton` 同步填写地址族，增加 `send_all_socket` 和 `socket_address_view` 的 bind 重载，并整理头文件依赖。`main.cpp` 改用完整发送和线程安全的本地时间转换。CMake 建立 `unp` INTERFACE 库、显式链接 `ws2_32`、改用 C++23，并新增 `tests/test_unp.cpp`。MSVC 与 MinGW 构建和 CTest 均通过；练习服务的本地回环连接也成功返回时间行。未执行 Git 提交。
-- 2026-09-13：用户修正 `ntop` 的变量名、异常声明和 IPv4/IPv6 缓冲区，并移除重复的 `send_socket` 定义。使用 Visual Studio Developer PowerShell 执行 `cmake --build cmake-build-debug`，MSVC 编译和链接成功。只更新记忆，未修改业务代码。
-- 2026-09-13：读取项目文件、Git 状态和头文件差异，建立本记忆及项目级阅读/更新约定。未修改业务代码，未运行构建或测试。
+- 模块拆分及行读取修正后，MSVC 19.51 和 MinGW GCC 16.2 的干净构建均通过，CTest 均为 1/1；测试覆盖截断续读、换行、EOF、reader 解绑及带未读缓存的移动构造/赋值，通过 `git diff --check`。
+- Daytime 客户端已修正反向的 Socket 有效性判断；MSVC 构建和 CTest 通过，并使用临时本地 `127.0.0.1:13` 服务验证可完整收到时间行。本机平时没有该服务时，连接会正确返回 `10061`。
+- POSIX/Linux/macOS 尚未实际编译；当前环境枚举 WSL 返回 `E_ACCESSDENIED`。
