@@ -36,4 +36,14 @@ inline void set_connection_closed_error() noexcept {
 #endif
 }
 
+template<typename T>
+[[nodiscard]]  bool is_negative_value(T v) noexcept {
+    if constexpr (std::is_signed_v<T>) {
+        return v < 0;
+    }
+    else {
+        return false;
+    }
+}
+
 } // namespace unp::detail

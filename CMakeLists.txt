@@ -11,6 +11,7 @@ target_sources(unp INTERFACE
     FILE_SET HEADERS
     BASE_DIRS ${PROJECT_SOURCE_DIR}/include
     FILES include/unp/sys/process.h
+    include/unp/sys/exec.h
 )
 if(MSVC)
     add_compile_options(/std:c++latest)

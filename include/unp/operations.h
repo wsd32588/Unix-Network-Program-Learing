@@ -64,11 +64,9 @@ namespace detail {
     native_socket_t socket,
     socket_address_view address
 ) noexcept {
-    if constexpr (std::is_signed_v<socket_length_t>) {
-        if (address.length < 0) {
-            detail::set_invalid_argument_error();
-            return -1;
-        }
+    if (detail::is_negative_value(address.length)) {
+        detail::set_invalid_argument_error();
+        return -1;   
     }
 
     return bind_socket(
@@ -101,7 +99,7 @@ namespace detail {
     socket_address_view address
 ) noexcept {
     if constexpr (std::is_signed_v<socket_length_t>) {
-        if (address.length < 0) {
+        if (detail::is_negative_value(address.length)) {
             detail::set_invalid_argument_error();
             return -1;
         }

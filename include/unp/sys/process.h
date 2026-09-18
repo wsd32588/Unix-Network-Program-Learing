@@ -4,6 +4,11 @@
 #include <expected>
 #include <system_error>
 #include <utility>
+#include <string>
+#include <vector>
+#include <climits>
+#include "exec.h"
+
 
 #ifdef _WIN32
     #ifndef WIN32_LEAN_AND_MEAN
@@ -44,7 +49,7 @@ namespace unp::sys {
             return kind == process_exit_kind::exited;
         }
     };
-
+#ifndef _WIN32
     struct fork_result {
         process_id_t returned_id;
 
@@ -56,7 +61,7 @@ namespace unp::sys {
             return returned_id > 0;
         }
     };
-
+#endif
     struct adopt_process_t {
         explicit adopt_process_t() = default;
     };
@@ -158,6 +163,69 @@ namespace unp::sys {
         }
 #endif
 
+#ifdef _WIN32
+
+        [[nodiscard]] inline std::expected<std::wstring,std::error_code> utf8_to_wide(
+            std::string_view str
+        ) {
+            if (str.empty()) {
+                return {};
+            }
+            
+            int size_needed{};
+            if (str.size() > INT_MAX) {
+                return std::unexpected(std::make_error_code(std::errc::value_too_large));
+            }
+
+            if (!(size_needed = ::MultiByteToWideChar(
+                CP_UTF8, 0, str.data(), static_cast<int>(str.size()), nullptr, 0
+            ))) {
+                return std::unexpected(
+                    std::error_code(
+                        ::GetLastError(), std::system_category())
+                );
+            }
+            std::wstring result(size_needed, L'\0');
+
+            if (!(::MultiByteToWideChar(
+                CP_UTF8, 0, str.data(), static_cast<int>(str.size()), result.data(), size_needed
+            ))) {
+                return std::unexpected(
+                    std::error_code(
+                        ::GetLastError(), std::system_category())
+                );
+            }
+            return result;
+        }
+
+        [[nodiscard]] static std::expected<process, std::error_code> create_process(
+            std::wstring command_line
+        ) {
+            STARTUPINFOW startup_info{};
+            startup_info.cb = sizeof(startup_info);
+
+            PROCESS_INFORMATION process_info{};
+
+            if (!::CreateProcessW(
+                nullptr, command_line.data(), nullptr, nullptr,
+                FALSE, 0, nullptr, nullptr, &startup_info, &process_info
+            )) {
+                return std::unexpected(
+                    std::error_code(
+                        static_cast<int>(::GetLastError()),
+                        std::system_category()
+                    ));
+            }
+
+            ::CloseHandle(process_info.hThread);
+
+            process child;
+            child.handle_ = process_info.hProcess;
+            child.id_ = process_info.dwProcessId;
+
+            return child;
+        }
+#endif
 
         [[nodiscard]] std::expected<process_exit_status, std::error_code> wait() {
             if (!valid()) {
@@ -261,6 +329,43 @@ namespace unp::sys {
 
         }
 #endif
+
+        [[nodiscard]] inline std::expected<process, std::error_code> spawn_process(
+            const std::string& program,
+            const std::vector<std::string>& args  
+        ) {
+#ifdef _WIN32
+            std::string cmd = "\"" + program + "\"";
+            for (const auto& arg : args) {
+                cmd += "\"" + arg + " \"";
+            }
+            auto wide_command = utf8_to_wide(cmd);
+            if (!wide_command) {
+                return std::unexpected(wide_command.error());
+            }
+            return create_process(std::move(*wide_command));
+        
+#else
+            const auto res = fork_id();
+
+            if (!res) {
+                return std::unexpected(res.error());
+            }
+
+            if (res->in_child()) {
+                std::vector<char*> argv;
+                argv.reserve(args.size() + 2);
+                argv.push_back(const_cast<char*>(program.c_str()));
+                for (const auto& arg : args) {
+                    argv.push_back(const_cast<char*>(arg.c_str()));
+                }
+                argv.push_back(nullptr);
+                exec_program(program.c_str(),argv.data());
+                ::_exit();
+            }
+            return process(adopt_process_handle, res->returned_id);
+#endif
+        }
 
 };
 

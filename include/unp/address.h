@@ -25,6 +25,10 @@ struct socket_address_view {
     const sockaddr* address;
     socket_length_t length;
 
+    constexpr socket_address_view(const sockaddr* addr, socket_length_t len) noexcept
+        : address(addr), length(len) {
+    }
+
     operator const sockaddr*() const noexcept {
         return address;
     }

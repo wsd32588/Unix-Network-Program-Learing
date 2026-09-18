@@ -75,6 +75,21 @@ int main() {
         return EXIT_FAILURE;
     }
 
+#ifdef _WIN32
+    auto child = unp::sys::process::create_process(
+        L"cmd.exe /D /C exit 23");
+        if (!child) {
+            return EXIT_FAILURE;
+        }
+        auto status = child->wait();
+
+        if (!status ||
+            !status->exited_normally()||
+            status->value != 23) {
+            return EXIT_FAILURE;
+        }
+#endif
+
 #ifndef _WIN32
     if (!test_fork_and_wait()) {
         return EXIT_FAILURE;
