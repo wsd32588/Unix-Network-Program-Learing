@@ -22,7 +22,7 @@
     #include <unistd.h>
 #endif
 
-namespace unp::net {
+namespace unp {
 
 #ifdef _WIN32
 using native_socket_t = SOCKET;
@@ -146,4 +146,4 @@ struct socket_env {
     socket_env& operator=(const socket_env&) = delete;
 };
 
-} // namespace unp::net
+} // namespace unp

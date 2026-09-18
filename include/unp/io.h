@@ -1,63 +1,20 @@
 #pragma once
 
 #include "unp/detail/socket_error.h"
-#include "unp/net/operations.h"
+#include "unp/operations.h"
 
 #include <algorithm>
+#include <concepts>
 #include <cstddef>
+#include <expected>
+#include <iterator>
 #include <limits>
 #include <span>
 #include <string>
+#include <string_view>
+#include <system_error>
 
-namespace unp::net::io {
-
-[[nodiscard]] inline bool send_all(
-    native_socket_t socket,
-    const char* buffer,
-    std::size_t length,
-    int flags = 0
-) noexcept {
-    if (buffer == nullptr && length != 0) {
-        detail::set_invalid_argument_error();
-        return false;
-    }
-
-    std::size_t total_sent = 0;
-    constexpr const std::size_t max_chunk = static_cast<std::size_t>(
-        (std::numeric_limits<socket_io_result_t>::max)()
-    );
-
-    while (total_sent < length) {
-        const std::size_t remaining = length - total_sent;
-        const std::size_t chunk_size = remaining > max_chunk
-            ? max_chunk
-            : remaining;
-        const socket_io_result_t sent = send_socket(
-            socket,
-            buffer + total_sent,
-            chunk_size,
-            flags
-        );
-
-        if (sent > 0) {
-            total_sent += static_cast<std::size_t>(sent);
-            continue;
-        }
-
-        if (sent == 0) {
-            detail::set_connection_closed_error();
-            return false;
-        }
-
-        if (detail::is_interrupted_error(last_socket_error())) {
-            continue;
-        }
-
-        return false;
-    }
-
-    return true;
-}
+namespace unp {
 
 [[nodiscard]] inline socket_io_result_t readn(
     native_socket_t socket,
@@ -292,4 +249,97 @@ public:
 
     return static_cast<socket_io_result_t>(line.size());
 }
-} // namespace unp::net::io
+
+[[nodiscard]] inline std::expected<std::size_t, std::error_code> writen(
+    native_socket_t socket,
+    std::span<const std::byte> bytes,
+    int flags = 0
+) noexcept {
+    if (socket == invalid_socket) {
+        detail::set_invalid_argument_error();
+        return std::unexpected(std::make_error_code(std::errc::bad_file_descriptor));
+    }
+
+    std::size_t total_written = 0;
+    const std::size_t total_size = bytes.size();
+
+    constexpr std::size_t max_chunk = static_cast<std::size_t>(
+        (std::numeric_limits<socket_io_result_t>::max)()
+    );
+
+    while (total_written < total_size) {
+        const std::size_t remaining_size = total_size - total_written;
+        const std::size_t chunk_size = remaining_size > max_chunk
+            ? max_chunk
+            : remaining_size;
+
+        const socket_io_result_t sent = send_socket(
+            socket,
+            bytes.data() + total_written,
+            chunk_size,
+            flags
+        );
+
+        if (sent > 0) {
+            total_written += static_cast<std::size_t>(sent);
+            continue;
+        }
+
+        if (sent == 0) {
+            detail::set_connection_closed_error();
+            return std::unexpected(std::make_error_code(std::errc::broken_pipe));
+        }
+
+        const int err = last_socket_error();
+        if (detail::is_interrupted_error(err)) {
+            continue;
+        }
+
+#ifdef _WIN32
+        return std::unexpected(std::error_code(err, std::system_category()));
+#else
+        return std::unexpected(std::error_code(err, std::generic_category()));
+#endif
+    }
+
+    return total_written;
+}
+
+[[nodiscard]] inline std::expected<std::size_t, std::error_code> writen(
+    const sockfd& fd,
+    std::span<const std::byte> bytes,
+    int flags = 0
+) noexcept {
+    return writen(fd.get(), bytes, flags);
+}
+
+[[nodiscard]] inline std::expected<std::size_t, std::error_code> writen(
+    const sockfd& fd,
+    std::string_view sv,
+    int flags = 0
+) noexcept {
+    return writen(
+        fd.get(),
+        std::as_bytes(std::span(sv.data(), sv.size())),
+        flags
+    );
+}
+
+template <typename Container>
+    requires requires(const Container& c) {
+        { std::data(c) } -> std::contiguous_iterator;
+        { std::size(c) } -> std::convertible_to<std::size_t>;
+            requires sizeof(typename Container::value_type) == 1;
+}
+[[nodiscard]] inline std::expected<std::size_t, std::error_code> writen(
+    const sockfd& fd,
+    const Container& container,
+    int flags = 0
+) noexcept {
+    return writen(
+        fd.get(),
+        std::as_bytes(std::span(std::data(container), std::size(container))),
+        flags
+    );
+}
+} // namespace unp

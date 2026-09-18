@@ -1,14 +1,14 @@
 #pragma once
 
 #include "unp/detail/socket_error.h"
-#include "unp/net/address.h"
-#include "unp/net/socket.h"
+#include "unp/address.h"
+#include "unp/socket.h"
 
 #include <cstddef>
 #include <limits>
 #include <type_traits>
 
-namespace unp::net {
+namespace unp {
 
 namespace detail {
 
@@ -116,7 +116,7 @@ namespace detail {
 
 [[nodiscard]] inline int listen_socket(
     native_socket_t socket,
-    int backlog
+    int backlog = SOMAXCONN
 ) noexcept {
     return ::listen(socket, backlog);
 }
@@ -137,7 +137,7 @@ namespace detail {
 
 [[nodiscard]] inline socket_io_result_t send_socket(
     native_socket_t socket,
-    const char* buffer,
+    const void* buffer,
     std::size_t length,
     int flags = 0
 ) noexcept {
@@ -151,7 +151,7 @@ namespace detail {
         detail::set_message_too_large_error();
         return SOCKET_ERROR;
     }
-    return ::send(socket, buffer, static_cast<int>(length), flags);
+    return ::send(socket, static_cast<const char*>(buffer), static_cast<int>(length), flags);
 #else
     #ifdef MSG_NOSIGNAL
         flags |= MSG_NOSIGNAL;
@@ -182,4 +182,4 @@ namespace detail {
 #endif
 }
 
-} // namespace unp::net
+} // namespace unp

@@ -1,8 +1,8 @@
 #pragma once
 
-#include "unp/net/socket.h"
+#include "unp/socket.h"
 
-namespace unp::net::detail {
+namespace unp::detail {
 
 inline void set_invalid_argument_error() noexcept {
 #ifdef _WIN32
@@ -36,4 +36,4 @@ inline void set_connection_closed_error() noexcept {
 #endif
 }
 
-} // namespace unp::net::detail
+} // namespace unp::detail

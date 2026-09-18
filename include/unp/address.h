@@ -1,7 +1,7 @@
 #pragma once
 
 #include "unp/detail/socket_error.h"
-#include "unp/net/socket.h"
+#include "unp/socket.h"
 
 #include <concepts>
 #include <cstddef>
@@ -10,7 +10,11 @@
 #include <string>
 #include <type_traits>
 
-namespace unp::net {
+#ifndef _WIN32
+#include <netdb.h>
+#endif
+
+namespace unp {
 
 template<typename T>
 concept SocketAddressType =
@@ -135,4 +139,4 @@ template<SocketAddressType Address>
     return std::string(buffer);
 }
 
-} // namespace unp::net
+} // namespace unp
