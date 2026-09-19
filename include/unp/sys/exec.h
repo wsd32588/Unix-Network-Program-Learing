@@ -41,6 +41,6 @@ namespace unp::sys {
     return exec_program(file_string.c_str(), argv.data());
 }
 
-}
+} // namespace unp::sys
 
 #endif

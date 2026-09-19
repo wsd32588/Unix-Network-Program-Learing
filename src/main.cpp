@@ -3,6 +3,41 @@
 #include <ctime>
 #include <iostream>
 #include <string_view>
+#include <chrono>
+#include <thread>
+
+namespace {
+
+    void serve_client(unp::sockfd connection) {
+        // 仅用于观察并发效果，正式代码可删除。
+        std::this_thread::sleep_for(std::chrono::seconds(2));
+
+        const std::time_t ticks = std::time(nullptr);
+        char buffer[128]{};
+
+#ifdef _WIN32
+        if (::ctime_s(buffer, sizeof(buffer), &ticks) != 0) {
+            std::cerr << "ctime_s failed\n";
+            return;
+        }
+#else
+        if (::ctime_r(&ticks, buffer) == nullptr) {
+            std::cerr << "ctime_r failed\n";
+            return;
+        }
+#endif
+
+        const auto written = unp::writen(
+            connection,
+            std::string_view{ buffer }
+        );
+        if (!written) {
+            std::cerr << "write failed: "
+                << written.error().message() << '\n';
+        }
+    }
+
+} // namespace
 
 int main() {
     unp::socket_env environment;
@@ -52,28 +87,15 @@ int main() {
             continue;
         }
 
-        const std::time_t ticks = std::time(nullptr);
-        char buffer[128]{};
-
-#ifdef _WIN32
-        if (::ctime_s(buffer, sizeof(buffer), &ticks) != 0) {
-            std::cerr << "ctime_s failed\n";
-            continue;
+        try {
+            std::thread(
+                serve_client,
+                std::move(connection)
+            ).detach();
         }
-#else
-        if (::ctime_r(&ticks, buffer) == nullptr) {
-            std::cerr << "ctime_r failed\n";
-            continue;
-        }
-#endif
-
-        const auto written = unp::writen(
-            connection,
-            std::string_view{buffer}
-        );
-        if (!written) {
-            std::cerr << "write failed: "
-                      << written.error().message() << '\n';
+        catch (const std::system_error& error) {
+            std::cerr << "thread creation failed: "
+                << error.what() << '\n';
         }
     }
 }

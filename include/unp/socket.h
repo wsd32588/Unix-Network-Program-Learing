@@ -2,8 +2,10 @@
 
 #include <bit>
 #include <cerrno>
+#include <expected>
 #include <stdexcept>
 #include <string>
+#include <system_error>
 #include <utility>
 
 #ifdef _WIN32
@@ -122,6 +124,43 @@ public:
         socket_ = new_socket;
     }
 };
+
+[[nodiscard]] inline std::expected<std::string, std::error_code> get_hostname() {
+    char buffer[256]{};
+
+#ifdef _WIN32
+    if (::gethostname(buffer, static_cast<int>(sizeof(buffer))) != 0) {
+        return std::unexpected(std::error_code(
+            ::WSAGetLastError(), std::system_category()));
+    }
+#else
+    if (::gethostname(buffer, sizeof(buffer)) != 0) {
+        return std::unexpected(std::error_code(
+            errno, std::generic_category()));
+    }
+#endif
+
+    buffer[sizeof(buffer) - 1] = '\0';
+    return std::string{ buffer };
+}
+
+[[nodiscard]] inline std::expected<sockaddr_storage, std::error_code> get_peer_name(
+    native_socket_t sock
+) noexcept {
+    sockaddr_storage ss{};
+    socket_length_t len = sizeof(ss);
+
+    if (::getpeername(sock, reinterpret_cast<sockaddr*>(&ss), &len)) {
+#ifdef _WIN32
+        return std::unexpected(std::error_code(
+            ::WSAGetLastError(), std::system_category()));
+#else
+        return std::unexpected(std::error_code(
+            errno, std::generic_category()));
+#endif
+    }
+    return ss;
+}
 
 struct socket_env {
     socket_env() {

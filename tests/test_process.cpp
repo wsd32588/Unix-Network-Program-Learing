@@ -78,26 +78,13 @@ int main() {
     }
 
 #ifdef _WIN32
-    auto child = unp::sys::process::create_process(
-        L"cmd.exe /D /C exit 23");
-    if (!child) {
-        return EXIT_FAILURE;
-    }
-    auto status = child->wait();
-
-    if (!status ||
-        !status->exited_normally() ||
-        status->value != 23) {
-        return EXIT_FAILURE;
-    }
-
-    if (unp::sys::detail::quote_windows_argument("plain") != "plain" ||
-        unp::sys::detail::quote_windows_argument("") != "\"\"" ||
-        unp::sys::detail::quote_windows_argument("two words") !=
+    if (unp::detail::quote_windows_argument("plain") != "plain" ||
+        unp::detail::quote_windows_argument("") != "\"\"" ||
+        unp::detail::quote_windows_argument("two words") !=
             "\"two words\"" ||
-        unp::sys::detail::quote_windows_argument("say \"hi\"") !=
+        unp::detail::quote_windows_argument("say \"hi\"") !=
             "\"say \\\"hi\\\"\"" ||
-        unp::sys::detail::quote_windows_argument("C:\\path with space\\") !=
+        unp::detail::quote_windows_argument("C:\\path with space\\") !=
             "\"C:\\path with space\\\\\"") {
         return EXIT_FAILURE;
     }
@@ -127,6 +114,21 @@ int main() {
     if (!the_status ||
         !the_status->exited_normally() ||
         the_status->value != 23) {
+        return EXIT_FAILURE;
+    }
+
+    const auto missing_child = unp::sys::process::spawn_process(
+        "unp_process_test_program_that_does_not_exist_7f32b6e1",
+        {}
+    );
+    if (missing_child) {
+        std::cerr << "spawn_process accepted a missing program\n";
+        return EXIT_FAILURE;
+    }
+    if (missing_child.error() !=
+        std::errc::no_such_file_or_directory) {
+        std::cerr << "missing program returned unexpected error: "
+            << missing_child.error().message() << '\n';
         return EXIT_FAILURE;
     }
 
