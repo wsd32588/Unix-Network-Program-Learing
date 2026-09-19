@@ -6,7 +6,6 @@
 
 #include <cstddef>
 #include <limits>
-#include <type_traits>
 
 namespace unp {
 
@@ -98,11 +97,9 @@ namespace detail {
     native_socket_t socket,
     socket_address_view address
 ) noexcept {
-    if constexpr (std::is_signed_v<socket_length_t>) {
-        if (detail::is_negative_value(address.length)) {
-            detail::set_invalid_argument_error();
-            return -1;
-        }
+    if (detail::is_negative_value(address.length)) {
+        detail::set_invalid_argument_error();
+        return -1;
     }
 
     return connect_socket(

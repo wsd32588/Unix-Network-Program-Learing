@@ -2,7 +2,9 @@
 
 #include <cstdlib>
 #include <iostream>
+#include <string>
 #include <type_traits>
+#include <vector>
 
 #ifndef _WIN32
 namespace {
@@ -78,16 +80,27 @@ int main() {
 #ifdef _WIN32
     auto child = unp::sys::process::create_process(
         L"cmd.exe /D /C exit 23");
-        if (!child) {
-            return EXIT_FAILURE;
-        }
-        auto status = child->wait();
+    if (!child) {
+        return EXIT_FAILURE;
+    }
+    auto status = child->wait();
 
-        if (!status ||
-            !status->exited_normally()||
-            status->value != 23) {
-            return EXIT_FAILURE;
-        }
+    if (!status ||
+        !status->exited_normally() ||
+        status->value != 23) {
+        return EXIT_FAILURE;
+    }
+
+    if (unp::sys::detail::quote_windows_argument("plain") != "plain" ||
+        unp::sys::detail::quote_windows_argument("") != "\"\"" ||
+        unp::sys::detail::quote_windows_argument("two words") !=
+            "\"two words\"" ||
+        unp::sys::detail::quote_windows_argument("say \"hi\"") !=
+            "\"say \\\"hi\\\"\"" ||
+        unp::sys::detail::quote_windows_argument("C:\\path with space\\") !=
+            "\"C:\\path with space\\\\\"") {
+        return EXIT_FAILURE;
+    }
 #endif
 
 #ifndef _WIN32
@@ -95,6 +108,27 @@ int main() {
         return EXIT_FAILURE;
     }
 #endif
+
+#ifdef _WIN32
+    std::string program = "cmd.exe";
+    std::vector<std::string> args{ "/D", "/C", "exit", "23" };
+#else
+    std::string program = "sh";
+    std::vector<std::string> args{ "-c", "exit 23" };
+#endif
+
+    auto other_child = unp::sys::process::spawn_process(program, args);
+
+    if (!other_child) {
+        return EXIT_FAILURE;
+    }
+    auto the_status = other_child->wait();
+
+    if (!the_status ||
+        !the_status->exited_normally() ||
+        the_status->value != 23) {
+        return EXIT_FAILURE;
+    }
 
     return EXIT_SUCCESS;
 }

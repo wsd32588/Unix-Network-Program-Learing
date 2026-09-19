@@ -27,5 +27,5 @@
 - 本地启动 Daytime 服务并连接 `127.0.0.1:13`，已实际收到完整时间行。
 - Ubuntu WSL 2 可从 Codex 调用；GCC 14.3 已严格编译并运行 `process_tests`。真实 `fork_process()` 测试中，子进程 `_exit(23)`，父进程成功 `wait()` 并取得退出码，回收后对象失效，第二次等待返回 `bad_file_descriptor`。信号终止路径及 macOS 仍待验证；端口 13 在类 Unix 系统通常需要相应权限。
 - CMake 已注册 `process.h` 并增加独立的 `process_tests`。`process::wait()` 返回 `process_exit_status`，保留 Windows 完整退出码，并在 POSIX 下区分正常退出和信号终止；MinGW GCC 16.2 全量构建及 2/2 CTest、MSVC 19.51 `process_tests` 均通过。
-- 进程模块正在增加 POSIX `execvp` 与跨平台 `spawn_process()`。2026-09-19 在 Ubuntu WSL/GCC 14.3 完整构建成功且 2/2 CTest 通过；仍有 `connect_socket()` 对无符号长度执行 `< 0` 比较，以及子进程忽略 `exec_program()` 返回值两个警告。POSIX spawn 尚无实际启动测试，且应把 `argv` 分配移到 `fork()` 前。
-- Windows 网络测试已通过；MSVC `process_tests` 当前因 `utf8_to_wide()` 长度过大分支使用未包含且不宜由库直接输出的 `std::cerr` 而无法编译。修正后还需验证 Windows 参数分隔/转义和 `spawn_process()` 返回路径。`exec_program()` 的分配型重载不应为 `noexcept`。
+- `process::spawn_process()` 已覆盖 Windows `CreateProcessW` 与 POSIX `fork`/`execvp`。POSIX 在 fork 前准备 `argv`，exec 失败以 126/127 退出；Windows 使用 `detail::quote_windows_argument()` 按常见 CRT 规则处理空参数、空白、双引号及反斜杠。分配内存的 `exec_program()` 重载不标记 `noexcept`。
+- 2026-09-19：MSVC 强制全量构建及 2/2 CTest 通过；Ubuntu WSL/GCC 14.3 强制全量构建无警告且 2/2 CTest 通过。Windows 与 POSIX 的 spawn 测试均实际启动子进程并取得退出码 23。`connect_socket()` 的有无符号长度检查也已无 GCC 警告。信号终止路径及 macOS 仍待验证。

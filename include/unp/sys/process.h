@@ -2,13 +2,14 @@
 #include <cerrno>
 #include <cstdint>
 #include <expected>
+#include <limits>
+#include <string>
+#include <string_view>
 #include <system_error>
 #include <utility>
-#include <string>
 #include <vector>
-#include <climits>
-#include "exec.h"
 
+#include "exec.h"
 
 #ifdef _WIN32
     #ifndef WIN32_LEAN_AND_MEAN
@@ -25,6 +26,47 @@
 #endif
 
 namespace unp::sys {
+
+#ifdef _WIN32
+namespace detail {
+
+[[nodiscard]] inline std::string quote_windows_argument(
+    std::string_view argument
+) {
+    if (!argument.empty() &&
+        argument.find_first_of(" \t\"") == std::string_view::npos) {
+        return std::string(argument);
+    }
+
+    std::string quoted;
+    quoted.reserve(argument.size() + 2);
+    quoted.push_back('"');
+
+    std::size_t backslash_count = 0;
+    for (const char character : argument) {
+        if (character == '\\') {
+            ++backslash_count;
+            continue;
+        }
+
+        if (character == '"') {
+            quoted.append(backslash_count * 2 + 1, '\\');
+            quoted.push_back('"');
+        }
+        else {
+            quoted.append(backslash_count, '\\');
+            quoted.push_back(character);
+        }
+        backslash_count = 0;
+    }
+
+    quoted.append(backslash_count * 2, '\\');
+    quoted.push_back('"');
+    return quoted;
+}
+
+} // namespace detail
+#endif
 
 #ifdef _WIN32
     using process_id_t = DWORD;
@@ -165,7 +207,7 @@ namespace unp::sys {
 
 #ifdef _WIN32
 
-        [[nodiscard]] inline std::expected<std::wstring,std::error_code> utf8_to_wide(
+        [[nodiscard]] static std::expected<std::wstring,std::error_code> utf8_to_wide(
             std::string_view str
         ) {
             if (str.empty()) {
@@ -173,8 +215,9 @@ namespace unp::sys {
             }
             
             int size_needed{};
-            if (str.size() > INT_MAX) {
-                return std::unexpected(std::make_error_code(std::errc::value_too_large));
+            if (str.size() > std::numeric_limits<int>::max()) {
+                return std::unexpected(
+                    std::make_error_code(std::errc::value_too_large));
             }
 
             if (!(size_needed = ::MultiByteToWideChar(
@@ -330,22 +373,31 @@ namespace unp::sys {
         }
 #endif
 
-        [[nodiscard]] inline std::expected<process, std::error_code> spawn_process(
+        [[nodiscard]] static std::expected<process, std::error_code> spawn_process(
             const std::string& program,
-            const std::vector<std::string>& args  
+            const std::vector<std::string>& args
         ) {
 #ifdef _WIN32
-            std::string cmd = "\"" + program + "\"";
+            std::string command_line = detail::quote_windows_argument(program);
             for (const auto& arg : args) {
-                cmd += "\"" + arg + " \"";
+                command_line.push_back(' ');
+                command_line += detail::quote_windows_argument(arg);
             }
-            auto wide_command = utf8_to_wide(cmd);
+
+            auto wide_command = utf8_to_wide(command_line);
             if (!wide_command) {
                 return std::unexpected(wide_command.error());
             }
             return create_process(std::move(*wide_command));
-        
 #else
+            std::vector<char*> argv;
+            argv.reserve(args.size() + 2);
+            argv.push_back(const_cast<char*>(program.c_str()));
+            for (const auto& arg : args) {
+                argv.push_back(const_cast<char*>(arg.c_str()));
+            }
+            argv.push_back(nullptr);
+
             const auto res = fork_id();
 
             if (!res) {
@@ -353,15 +405,11 @@ namespace unp::sys {
             }
 
             if (res->in_child()) {
-                std::vector<char*> argv;
-                argv.reserve(args.size() + 2);
-                argv.push_back(const_cast<char*>(program.c_str()));
-                for (const auto& arg : args) {
-                    argv.push_back(const_cast<char*>(arg.c_str()));
-                }
-                argv.push_back(nullptr);
-                exec_program(program.c_str(),argv.data());
-                ::_exit();
+                const auto exec_result =
+                    exec_program(program.c_str(), argv.data());
+                const auto exec_error = exec_result.error().value();
+
+                ::_exit(exec_error == ENOENT ? 127 : 126);
             }
             return process(adopt_process_handle, res->returned_id);
 #endif
