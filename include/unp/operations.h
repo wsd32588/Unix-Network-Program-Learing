@@ -118,16 +118,25 @@ namespace detail {
 
 [[nodiscard]] inline sockfd accept_socket(
     native_socket_t listen_socket,
-    sockaddr_storage& client_address,
-    socket_length_t& address_length
+    sockaddr_storage& peer_address,
+    socket_length_t& peer_address_length
 ) noexcept {
+    peer_address_length =
+        static_cast<socket_length_t>(sizeof(peer_address));
+
     return sockfd{
         ::accept(
             listen_socket,
-            reinterpret_cast<sockaddr*>(&client_address),
-            &address_length
+            reinterpret_cast<sockaddr*>(&peer_address),
+            &peer_address_length
         )
     };
+}
+
+[[nodiscard]] inline sockfd accept_socket(
+    native_socket_t listen_socket
+) noexcept {
+    return sockfd{::accept(listen_socket, nullptr, nullptr)};
 }
 
 [[nodiscard]] inline socket_io_result_t send_socket(

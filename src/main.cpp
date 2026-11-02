@@ -1,9 +1,9 @@
 #include "unp.h"
 
+#include <chrono>
 #include <ctime>
 #include <iostream>
 #include <string_view>
-#include <chrono>
 #include <thread>
 
 namespace {
@@ -73,17 +73,11 @@ int main() {
     std::cout << "Daytime server listening on 0.0.0.0:13...\n";
 
     for (;;) {
-        sockaddr_storage client_address{};
-        unp::socket_length_t client_address_length =
-            static_cast<unp::socket_length_t>(sizeof(client_address));
-
-        unp::sockfd connection = unp::accept_socket(
-            listen_socket.get(),
-            client_address,
-            client_address_length
-        );
+        unp::sockfd connection =
+            unp::accept_socket(listen_socket.get());
         if (!connection.valid()) {
-            std::cerr << "accept failed: " << unp::last_socket_error() << '\n';
+            std::cerr << "accept failed: "
+                << unp::last_socket_error() << '\n';
             continue;
         }
 

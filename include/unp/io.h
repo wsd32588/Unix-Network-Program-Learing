@@ -290,16 +290,12 @@ public:
             return std::unexpected(std::make_error_code(std::errc::broken_pipe));
         }
 
-        const int err = last_socket_error();
-        if (detail::is_interrupted_error(err)) {
+        const std::error_code error = detail::last_socket_error_code();
+        if (detail::is_interrupted_error(error.value())) {
             continue;
         }
 
-#ifdef _WIN32
-        return std::unexpected(std::error_code(err, std::system_category()));
-#else
-        return std::unexpected(std::error_code(err, std::generic_category()));
-#endif
+        return std::unexpected(error);
     }
 
     return total_written;
@@ -335,7 +331,7 @@ template <typename Container>
     const sockfd& fd,
     const Container& container,
     int flags = 0
-) noexcept {
+) {
     return writen(
         fd.get(),
         std::as_bytes(std::span(std::data(container), std::size(container))),

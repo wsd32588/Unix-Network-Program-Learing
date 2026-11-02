@@ -40,6 +40,9 @@ struct process_exit_status {
     }
 };
 
+// This handle does not terminate or wait for a child when it is discarded.
+// On POSIX, callers must call wait() or arrange for another reaper before the
+// last handle to a child is destroyed or overwritten.
 class process {
 private:
 #ifdef _WIN32
@@ -178,8 +181,12 @@ public:
         } while (result < 0 && errno == EINTR);
 
         if (result < 0) {
+            const int wait_error = errno;
+            if (wait_error == ECHILD) {
+                id_ = invalid_process_id;
+            }
             return std::unexpected(
-                std::error_code(errno, std::generic_category()));
+                std::error_code(wait_error, std::generic_category()));
         }
 
         if (WIFEXITED(status)) {

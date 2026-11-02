@@ -28,7 +28,8 @@ void test_address_helpers() {
     static_assert(!accepts_temporary_address<sockaddr_in6>);
 
     sockaddr_in ipv4{};
-    expect(unp::pton("127.0.0.1", ipv4), "pton parses an IPv4 address");
+    expect(unp::pton("127.0.0.1", ipv4).has_value(),
+           "pton parses an IPv4 address");
     expect(ipv4.sin_family == AF_INET, "pton sets the IPv4 family");
     expect(unp::ntop(ipv4) == "127.0.0.1", "ntop formats an IPv4 address");
 
@@ -40,14 +41,19 @@ void test_address_helpers() {
            "auto_sockaddr reports the IPv4 address size");
 
     sockaddr_in6 ipv6{};
-    expect(unp::pton("::1", ipv6), "pton parses an IPv6 address");
+    expect(unp::pton("::1", ipv6).has_value(),
+           "pton parses an IPv6 address");
     expect(ipv6.sin6_family == AF_INET6, "pton sets the IPv6 family");
     expect(unp::ntop(ipv6) == "::1", "ntop formats an IPv6 address");
 
     sockaddr_in invalid{};
-    expect(!unp::pton("not-an-address", invalid),
+    const auto invalid_text = unp::pton("not-an-address", invalid);
+    expect(!invalid_text &&
+               invalid_text.error() == std::errc::invalid_argument,
            "pton rejects an invalid address");
-    expect(!unp::pton(nullptr, invalid),
+    const auto null_text = unp::pton(nullptr, invalid);
+    expect(!null_text &&
+               null_text.error() == std::errc::invalid_argument,
            "pton rejects a null address string");
 }
 
@@ -88,7 +94,7 @@ void test_socket_io() {
     expect(listener.valid(), "create makes a listener socket");
 
     sockaddr_in listener_address{};
-    expect(unp::pton("127.0.0.1", listener_address),
+    expect(unp::pton("127.0.0.1", listener_address).has_value(),
            "pton prepares the loopback listener address");
     listener_address.sin_port = 0;
 
@@ -114,18 +120,38 @@ void test_socket_io() {
         IPPROTO_TCP
     );
     expect(client.valid(), "create makes a client socket");
-    expect(unp::connect_socket(client.get(), listener_view) == 0,
+    const int connect_result =
+        unp::connect_socket(client.get(), listener_view);
+    const int connect_error = connect_result == 0
+        ? 0
+        : unp::last_socket_error();
+    if (connect_result != 0) {
+        std::cerr << "connect_socket failed with result "
+            << connect_result << ", socket error "
+            << connect_error << ", address "
+            << unp::ntop(listener_address) << ':'
+            << ntohs(listener_address.sin_port) << '\n';
+    }
+    expect(connect_result == 0,
            "client connects to the loopback listener");
 
     sockaddr_storage peer_address{};
-    unp::socket_length_t peer_length =
-        static_cast<unp::socket_length_t>(sizeof(peer_address));
+    unp::socket_length_t peer_address_length = 0;
     unp::sockfd peer = unp::accept_socket(
         listener.get(),
         peer_address,
-        peer_length
+        peer_address_length
     );
     expect(peer.valid(), "accept_socket accepts the loopback client");
+    expect(peer_address_length > 0,
+           "accept_socket reports the peer address length");
+    expect(peer_address.ss_family == AF_INET,
+           "accept_socket reports the peer address family");
+
+    const unp::sockfd invalid_accept =
+        unp::accept_socket(unp::invalid_socket);
+    expect(!invalid_accept.valid(),
+           "accept_socket reports an invalid listener as an error");
 
     const std::string message = "unp send-all test";
     const auto written = unp::writen(peer, std::string_view{message});

@@ -5,9 +5,9 @@
 
 #include <concepts>
 #include <cstddef>
-#include <cstring>
-#include <stdexcept>
+#include <expected>
 #include <string>
+#include <system_error>
 #include <type_traits>
 
 #ifndef _WIN32
@@ -81,10 +81,11 @@ template<SocketAddressType Address>
 }
 
 template<SocketAddressType Address>
-[[nodiscard]] inline bool pton(const char* source, Address& destination) noexcept {
+[[nodiscard]] inline std::expected<void, std::error_code>
+pton(const char* source, Address& destination) noexcept {
     if (source == nullptr) {
-        detail::set_invalid_argument_error();
-        return false;
+        return std::unexpected(
+            std::make_error_code(std::errc::invalid_argument));
     }
 
     const int result = ::inet_pton(
@@ -92,8 +93,13 @@ template<SocketAddressType Address>
         source,
         get_in_addr(destination)
     );
-    if (result != 1) {
-        return false;
+    if (result == 0) {
+        return std::unexpected(
+            std::make_error_code(std::errc::invalid_argument));
+    }
+
+    if (result < 0) {
+        return std::unexpected(detail::last_socket_error_code());
     }
 
     using AddressType = std::remove_cvref_t<Address>;
@@ -102,7 +108,7 @@ template<SocketAddressType Address>
     } else {
         destination.sin6_family = static_cast<family_t>(AF_INET6);
     }
-    return true;
+    return {};
 }
 
 namespace detail {
@@ -130,13 +136,9 @@ template<SocketAddressType Address>
         sizeof(buffer)
     );
     if (result == nullptr) {
-        throw std::runtime_error(
-            std::string("inet_ntop failed: ") +
-#ifdef _WIN32
-            std::to_string(last_socket_error())
-#else
-            std::strerror(last_socket_error())
-#endif
+        throw std::system_error(
+            detail::last_socket_error_code(),
+            "inet_ntop failed"
         );
     }
 

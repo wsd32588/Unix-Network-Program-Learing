@@ -1,8 +1,37 @@
 #pragma once
 
-#include "unp/socket.h"
+#include <cerrno>
+#include <system_error>
+#include <type_traits>
+
+#ifdef _WIN32
+    #include <winsock2.h>
+#endif
 
 namespace unp::detail {
+
+[[nodiscard]] inline int last_socket_error_value() noexcept {
+#ifdef _WIN32
+    return ::WSAGetLastError();
+#else
+    return errno;
+#endif
+}
+
+[[nodiscard]] inline std::error_code last_socket_error_code() noexcept {
+    const int error = last_socket_error_value();
+#ifdef _WIN32
+    return std::error_code(
+        error,
+        std::system_category()
+    );
+#else
+    return std::error_code(
+        error,
+        std::generic_category()
+    );
+#endif
+}
 
 inline void set_invalid_argument_error() noexcept {
 #ifdef _WIN32
@@ -37,9 +66,9 @@ inline void set_connection_closed_error() noexcept {
 }
 
 template<typename T>
-[[nodiscard]]  bool is_negative_value(T v) noexcept {
+[[nodiscard]] inline bool is_negative_value(T value) noexcept {
     if constexpr (std::is_signed_v<T>) {
-        return v < 0;
+        return value < 0;
     }
     else {
         return false;

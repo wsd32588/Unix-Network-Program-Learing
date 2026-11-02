@@ -9,6 +9,7 @@
 #include <vector>
 
 #include <fcntl.h>
+#include <signal.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -52,6 +53,16 @@ fork_id() noexcept {
     return argv;
 }
 
+inline void kill_and_reap_child(pid_t pid) noexcept {
+    ::kill(pid, SIGKILL);
+
+    int status = 0;
+    pid_t wait_result = 0;
+    do {
+        wait_result = ::waitpid(pid, &status, 0);
+    } while (wait_result < 0 && errno == EINTR);
+}
+
 [[nodiscard]] inline std::expected<fork_result, std::error_code>
 spawn_native_process(
     const std::string& program,
@@ -77,31 +88,59 @@ spawn_native_process(
         ::execvp(program.c_str(), argv.data());
 
         const int exec_error = errno;
-        ssize_t bytes_written = 0;
-        do {
-            bytes_written =
-                ::write(pipefd[1], &exec_error, sizeof(exec_error));
-        } while (bytes_written < 0 && errno == EINTR);
+        const char* source = reinterpret_cast<const char*>(&exec_error);
+        std::size_t bytes_left = sizeof(exec_error);
+        while (bytes_left > 0) {
+            const ssize_t bytes_written =
+                ::write(pipefd[1], source, bytes_left);
+            if (bytes_written < 0) {
+                if (errno == EINTR) {
+                    continue;
+                }
+                break;
+            }
+            if (bytes_written == 0) {
+                break;
+            }
 
+            source += bytes_written;
+            bytes_left -= static_cast<std::size_t>(bytes_written);
+        }
         ::_exit(127);
     }
 
     ::close(pipefd[1]);
     int child_errno = 0;
-    ssize_t bytes_read = 0;
-    do {
-        bytes_read =
-            ::read(pipefd[0], &child_errno, sizeof(child_errno));
-    } while (bytes_read < 0 && errno == EINTR);
+    char* const dest = reinterpret_cast<char*>(&child_errno);
+    std::size_t total_read = 0;
+    std::error_code pipe_error;
+    while (total_read < sizeof(child_errno)) {
+        const ssize_t bytes_read = ::read(
+            pipefd[0],
+            dest + total_read,
+            sizeof(child_errno) - total_read
+        );
+        if (bytes_read > 0) {
+            total_read += static_cast<std::size_t>(bytes_read);
+            continue;
+        }
+        if (bytes_read == 0) {
+            break;
+        }
+        if (errno == EINTR) {
+            continue;
+        }
+        pipe_error = std::error_code(errno, std::generic_category());
+        break;
+    }
 
-    const int read_error = bytes_read < 0 ? errno : 0;
     ::close(pipefd[0]);
 
-    if (bytes_read == 0) {
+    if (!pipe_error && total_read == 0) {
         return *result;
     }
 
-    if (bytes_read == static_cast<ssize_t>(sizeof(child_errno))) {
+    if (!pipe_error && total_read == sizeof(child_errno)) {
         int status = 0;
         pid_t wait_result = 0;
         do {
@@ -112,9 +151,9 @@ spawn_native_process(
             std::error_code(child_errno, std::generic_category()));
     }
 
-    if (bytes_read < 0) {
-        return std::unexpected(
-            std::error_code(read_error, std::generic_category()));
+    kill_and_reap_child(result->returned_id);
+    if (pipe_error) {
+        return std::unexpected(pipe_error);
     }
 
     return std::unexpected(

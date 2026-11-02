@@ -31,6 +31,7 @@ namespace unp::sys {
     argv.reserve(args.size() + 2);
 
     std::string file_string(file);
+    // file_string remains unchanged and alive until exec_program returns.
     argv.push_back(file_string.data());
 
     for (const char* argument : args) {

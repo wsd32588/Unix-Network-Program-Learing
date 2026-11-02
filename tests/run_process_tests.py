@@ -18,6 +18,12 @@ WINDOWS_BUILD_CANDIDATES = (
     PROJECT_ROOT / "cmake-build-debug-visual-studio",
     PROJECT_ROOT / "cmake-build-debug",
 )
+PROCESS_COMPAT_HEADER_INCLUDES = (
+    "unp/detail/linux_process.h",
+    "unp/detail/windows_process.h",
+    "unp/sys/exec.h",
+    "unp/sys/process.h",
+)
 
 
 def run(
@@ -137,6 +143,22 @@ def get_wsl_project_root() -> str:
 def run_wsl_tests() -> None:
     wsl_root = get_wsl_project_root()
     binary = "/tmp/unp_process_tests"
+    for header in PROCESS_COMPAT_HEADER_INCLUDES:
+        run([
+            "wsl.exe",
+            "g++",
+            "-std=c++23",
+            "-Wall",
+            "-Wextra",
+            "-Wpedantic",
+            f"-I{wsl_root}/include",
+            "-include",
+            header,
+            "-x",
+            "c++",
+            "-fsyntax-only",
+            "/dev/null",
+        ])
     run([
         "wsl.exe",
         "g++",
@@ -154,6 +176,21 @@ def run_wsl_tests() -> None:
 
 def run_native_linux_tests() -> None:
     binary = Path(tempfile.gettempdir()) / "unp_process_tests"
+    for header in PROCESS_COMPAT_HEADER_INCLUDES:
+        run([
+            "g++",
+            "-std=c++23",
+            "-Wall",
+            "-Wextra",
+            "-Wpedantic",
+            f"-I{PROJECT_ROOT / 'include'}",
+            "-include",
+            header,
+            "-x",
+            "c++",
+            "-fsyntax-only",
+            os.devnull,
+        ])
     run([
         "g++",
         "-std=c++23",
@@ -170,7 +207,10 @@ def run_native_linux_tests() -> None:
 
 def parse_arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Build and run process_tests on the available platforms."
+        description=(
+            "Check process compatibility headers and run process_tests "
+            "on the available platforms."
+        )
     )
     parser.add_argument(
         "--build-dir",
@@ -211,7 +251,7 @@ def main() -> int:
         print(f"process test run failed: {error}", file=sys.stderr)
         return 1
 
-    print("process tests passed", flush=True)
+    print("process compatibility tests passed", flush=True)
     return 0
 
 

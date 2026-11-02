@@ -7,6 +7,10 @@
 #include <vector>
 
 #ifndef _WIN32
+    #include <cerrno>
+    #include <sys/wait.h>
+    #include <unistd.h>
+
 namespace {
 
     [[nodiscard]] bool test_fork_and_wait() {
@@ -41,6 +45,43 @@ namespace {
             second_wait.error() !=
                 std::make_error_code(std::errc::bad_file_descriptor)) {
             std::cerr << "second wait did not report bad_file_descriptor\n";
+            return false;
+        }
+
+        return true;
+    }
+
+    [[nodiscard]] bool test_external_reap_invalidates_process() {
+        auto child = unp::sys::process::fork_process();
+        if (!child) {
+            std::cerr << "fork_process failed: "
+                << child.error().message() << '\n';
+            return false;
+        }
+
+        if (!child->valid()) {
+            ::_exit(0);
+        }
+
+        int status = 0;
+        pid_t wait_result = 0;
+        do {
+            wait_result = ::waitpid(child->id(), &status, 0);
+        } while (wait_result < 0 && errno == EINTR);
+
+        if (wait_result < 0) {
+            std::cerr << "external waitpid failed\n";
+            return false;
+        }
+
+        const auto second_wait = child->wait();
+        if (second_wait ||
+            second_wait.error() != std::errc::no_child_process) {
+            std::cerr << "wait did not report no_child_process\n";
+            return false;
+        }
+        if (child->valid()) {
+            std::cerr << "ECHILD left the process valid\n";
             return false;
         }
 
@@ -92,6 +133,9 @@ int main() {
 
 #ifndef _WIN32
     if (!test_fork_and_wait()) {
+        return EXIT_FAILURE;
+    }
+    if (!test_external_reap_invalidates_process()) {
         return EXIT_FAILURE;
     }
 #endif

@@ -24,6 +24,8 @@
     #include <unistd.h>
 #endif
 
+#include "unp/detail/socket_error.h"
+
 namespace unp {
 
 #ifdef _WIN32
@@ -43,11 +45,7 @@ inline constexpr native_socket_t invalid_socket = -1;
 inline constexpr std::endian native_endian = std::endian::native;
 
 [[nodiscard]] inline int last_socket_error() noexcept {
-#ifdef _WIN32
-    return ::WSAGetLastError();
-#else
-    return errno;
-#endif
+    return detail::last_socket_error_value();
 }
 
 class sockfd {
@@ -129,16 +127,14 @@ public:
     char buffer[256]{};
 
 #ifdef _WIN32
-    if (::gethostname(buffer, static_cast<int>(sizeof(buffer))) != 0) {
-        return std::unexpected(std::error_code(
-            ::WSAGetLastError(), std::system_category()));
-    }
+    const int result =
+        ::gethostname(buffer, static_cast<int>(sizeof(buffer)));
 #else
-    if (::gethostname(buffer, sizeof(buffer)) != 0) {
-        return std::unexpected(std::error_code(
-            errno, std::generic_category()));
-    }
+    const int result = ::gethostname(buffer, sizeof(buffer));
 #endif
+    if (result != 0) {
+        return std::unexpected(detail::last_socket_error_code());
+    }
 
     buffer[sizeof(buffer) - 1] = '\0';
     return std::string{ buffer };
@@ -150,14 +146,12 @@ public:
     sockaddr_storage ss{};
     socket_length_t len = sizeof(ss);
 
-    if (::getpeername(sock, reinterpret_cast<sockaddr*>(&ss), &len)) {
-#ifdef _WIN32
-        return std::unexpected(std::error_code(
-            ::WSAGetLastError(), std::system_category()));
-#else
-        return std::unexpected(std::error_code(
-            errno, std::generic_category()));
-#endif
+    if (::getpeername(
+            sock,
+            reinterpret_cast<sockaddr*>(&ss),
+            &len
+        ) != 0) {
+        return std::unexpected(detail::last_socket_error_code());
     }
     return ss;
 }
